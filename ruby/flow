@@ -1,0 +1,86 @@
+#!/usr/bin/env ruby
+require 'time'
+require 'fileutils'
+
+class FlowMain
+  def initialize(home)
+    @home = home
+  end
+  
+  def execute(args)
+    case action(args)
+    when :start then start_flow()
+    when :fail then fail_flow()
+    when :done then record_flow()
+    else
+      print_help()
+    end
+  end
+
+  def start_flow()
+    if flow_exists?
+      $stderr.puts "Previous flow started at #{start_time} exists. Please report result."
+    else
+      File.write(flow_path, current_time)
+    end
+  end
+
+  def fail_flow
+    FileUtils.rm_f(flow_path)
+  end
+
+  def record_flow
+    if flow_exists?
+      finish = Time.parse(current_time)
+      start = Time.parse(start_time)
+      duration = (finish - start).to_i
+      row = [start.iso8601, finish.iso8601, duration.to_s].join(",")
+      File.open(flow_ledger_path, "a") {|f| f.puts(row) }
+      FileUtils.rm_f(flow_path)
+      puts "Flow lasted #{duration}s"
+    else
+      puts "No flow started"
+    end
+  end
+
+  def flow_exists?
+    File.exists?(flow_path)
+  end
+
+  def flow_path
+    File.join(@home, ".flow")
+  end
+
+  def flow_ledger_path
+    File.join(@home, "flow_ledger.csv")
+  end
+
+  def current_time
+    Time.now.iso8601
+  end
+
+  def start_time
+    File.read(flow_path)
+  end
+
+  def action(arg)
+    if arg.nil? || arg == "s" || arg == "start"
+      return :start
+    elsif arg == "f" || arg == "fail"
+      return :fail
+    elsif arg == "d" || arg == "done"
+      return :done
+    else
+      return :help
+    end
+  end
+
+  def print_help
+    puts "Usage:"
+    puts "flow [start] - start a new flow"
+    puts "flow d[one] - record a succesful flow"
+    puts "flow f[ail] - fail the current flow"
+  end
+end
+
+FlowMain.new(ENV["FLOW_PATH"] || ENV["HOME"]).execute(ARGV[0])

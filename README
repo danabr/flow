@@ -1,0 +1,8 @@
+flow
+
+flow [start] - Start a new flow. Will warn if previous flow has not been recored as finished.
+flow f[ail] - Fail previous flow
+flow d[one] - Record successful flow
+
+File format:
+Flow started,Flow ended,duration
