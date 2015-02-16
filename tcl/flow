@@ -1,0 +1,86 @@
+#!/usr/bin/tclsh
+proc main {home prog argc argv} {
+  set flow_path "$home/.flow"
+  set ledger_path "$home/flow_ledger.csv"
+  if {$argc == 0 || $argv == "s" || $argv == "start"} {
+    start $flow_path
+  } elseif {$argv == "d" || $argv == "done"} {
+    done $flow_path $ledger_path
+  } elseif {$argv == "f" || $argv == "fail"} {
+    fail $flow_path
+  } else {
+    help $prog
+  }
+  exit 0
+}
+
+proc start {flow_path} {
+  if {[catch {write_time $flow_path} err]} {
+    if {[string match "*file already exists" $err]} {
+      puts stderr "Previous flow started at [flow_time $flow_path] already exists"
+    } else {
+      puts stderr "Failed to write flow file: $err"
+    }
+    exit 1
+  }
+}
+
+proc write_time {flow_path} {
+  set fd [open $flow_path [list RDWR CREAT EXCL] 0600]
+  puts -nonewline $fd [format_time [clock seconds]]
+  close $fd
+}
+
+proc flow_time {flow_path} {
+  set fd [open $flow_path "r"]
+  set content [read $fd]
+  close $fd
+  return $content
+}
+
+proc done {flow_path ledger_path} {
+  set now [clock seconds]
+  if {[catch {flow_time $flow_path} result]} {
+    puts "Failed to read flow time: $result"
+    exit 1
+  } else {
+    set start_time [clock scan $result -format [iso8601]]
+    set diff [expr { $now - $start_time}]
+    if {$diff < 0} {
+      puts stderr "Time went backwards?"
+      exit 1
+    }
+    write_ledger $ledger_path $result [format_time $now] $diff
+    fail $flow_path
+    puts "Flow lasted $diff seconds"
+  }
+}
+
+proc fail {flow_path} {
+  file delete $flow_path
+}
+
+proc format_time {seconds} {
+  return [clock format $seconds -format [iso8601]]
+}
+
+proc write_ledger {ledger_path start_time end_time diff} {
+  set fd [open $ledger_path "a"]
+  puts $fd "$start_time,$end_time,$diff"
+  close $fd
+}
+
+proc iso8601 {} {
+  return "%Y-%m-%dT%H:%M:%S%z"
+}
+
+proc help {prog} {
+  puts stderr "Usage:"
+  puts stderr "$prog \[start] - start a new flow"
+  puts stderr "$prog d\[one] - record a succesful flow"
+  puts stderr "$prog f\[ail] - fail the current flow"
+  exit 1
+}
+
+
+main [lindex [array get env HOME] 1] $argv0 $argc $argv
