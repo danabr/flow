@@ -13,11 +13,11 @@ let parse_action = function
 
 let help =
   let prog = Sys.executable_name in
-  [ "Usage:"
-  ; (sprintf "%s [start] - start a new flow" prog)
-  ; (sprintf "%s d[one] - record a successful flow" prog)
-  ; (sprintf "%s f[ail] - fail the current flow" prog)
-  ]
+  Ok [ "Usage:"
+     ; (sprintf "%s [start] - start a new flow" prog)
+     ; (sprintf "%s d[one] - record a successful flow" prog)
+     ; (sprintf "%s f[ail] - fail the current flow" prog)
+     ]
 
 (* This is ridiculous, but I can't find a way to forrmat
    the time using built in functions, neither a way to deconstruct
@@ -52,11 +52,11 @@ let finish () =
   let start_time = Time.of_string start_time_str in
   let diff = Int.of_float (Time.Span.to_sec (Time.diff end_time start_time)) in
   if diff < 0 then
-    [  "Time went backwards?" ]
+    Error [  "Time went backwards?" ]
   else
     let () = write_ledger start_time_str (format_time end_time) diff in
     let () = remove_flow_file () in
-    [ (sprintf "Flow finished in %d seconds" diff) ]
+    Ok [ (sprintf "Flow finished in %d seconds" diff) ]
 
 let open_flow_file () =
   let flags = [ Open_wronly
@@ -66,24 +66,31 @@ let open_flow_file () =
               ] in
   open_out_gen flags 0o666 (flow_path ())
 
-let do_start () =
+let write_flow_file () =
   let to_write = format_time (now ()) in
   let out = open_flow_file () in
-  output_string out to_write;
-  []
+  protect ~f:(fun () -> output_string out to_write)
+          ~finally:(fun () -> Out_channel.close out)
 
-let handle_start_error msg =
+let start_error_msg msg =
   match String.substr_index msg ~pattern:"File exists" with
     | Some _ -> [(sprintf "Flow already started at %s." (read_flow_file ()))]
     | None   -> ["Failed to create flow file:"; msg]
 
 let start () =
-  try do_start ()
-  with Sys_error msg -> handle_start_error msg
+  try
+    write_flow_file ();
+    Ok []
+  with Sys_error msg ->
+    Error (start_error_msg msg)
   
 let fail () =
-  let () = remove_flow_file () in
-  []
+  try
+    remove_flow_file ();
+    Ok []
+  with
+    Unix.Unix_error _ ->
+      Error ["Failed to remove flow file"]
 
 let do_action = function
   | Done  -> finish ()
@@ -91,7 +98,16 @@ let do_action = function
   | Help  -> help
   | Start -> start ()
 
+let print_lines lines =
+  List.iter ~f:(fun l -> printf "%s\n" l) lines
+
+let handle_action_result = function
+  | Ok output    -> print_lines output
+  | Error output ->
+      print_lines output;
+      exit 1
+
 let () =
   parse_action (Array.to_list Sys.argv)
   |> do_action
-  |> List.iter ~f:(fun l -> printf "%s\n" l)
+  |> handle_action_result
