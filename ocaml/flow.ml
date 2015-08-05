@@ -32,8 +32,22 @@ let format_time datetime =
 
 let now () = Core.Time.now ()
 
-let flow_path () = "/home/danabr/.flow"
-let ledger_path () = "/home/danabr/flow_ledger.csv"
+let rec find_home arr i =
+  if i < 0 then failwith "HOME not set"
+  else
+    match String.split ~on:'=' arr.(i) with
+    |  ["HOME"; home] -> home
+    | _               -> find_home arr (i-1)
+
+let home () =
+  let env = Unix.environment () in
+  let index = (Array.length env) - 1 in
+  find_home env index
+
+let flow_path () =
+  (sprintf "%s/.flow" (home ()))
+let ledger_path () =
+  (sprintf "%s/flow_ledger.csv" (home ()))
 
 let read_flow_file () =
   In_channel.with_file (flow_path ()) ~f:(fun inc -> input_line inc)
