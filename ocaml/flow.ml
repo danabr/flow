@@ -64,7 +64,7 @@ let open_flow_file () =
               ; Open_excl
               ; Open_text
               ] in
-  open_out_gen flags 0o600 (flow_path ())
+  open_out_gen flags 0o666 (flow_path ())
 
 let do_start () =
   let to_write = format_time (now ()) in
@@ -73,7 +73,7 @@ let do_start () =
   []
 
 let handle_start_error msg =
-  match String.substr_index msg "File exists" with
+  match String.substr_index msg ~pattern:"File exists" with
     | Some _ -> [(sprintf "Flow already started at %s." (read_flow_file ()))]
     | None   -> ["Failed to create flow file:"; msg]
 
