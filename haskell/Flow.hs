@@ -1,29 +1,78 @@
+-- flow implemented using a DSL that aids testing.
+
+import FlowModel
 import qualified Control.Exception
 import qualified Data.Maybe
 import qualified Data.Time.Clock
-import qualified Data.Time.Format
 import qualified System.Directory
 import qualified System.Environment
 import qualified System.FilePath
 
--- Need to keep track of
--- * flow file
--- * ledger file
--- * time
--- CLI args (System.Environment.getArgs)
---
-data Action
-  = Start
-  | Stop
-  | Fail
-  | Help
+
+-- Real implemention
+sideEffectsToIO :: SideEffect () -> IO ()
+sideEffectsToIO (NoSideEffects x) = return x
+
+sideEffectsToIO (DeleteFlow next) =
+  do
+    flowFile <- getFlowFile
+    System.Directory.removeFile flowFile
+    sideEffectsToIO (next ())
+
+sideEffectsToIO (ReadFlow next) =
+  do
+    flowFile <- getFlowFile
+    res <- tryReadFile flowFile
+    sideEffectsToIO (next res)
+
+sideEffectsToIO (WriteFlow timeStr next) =
+  do
+    flowFile <- getFlowFile
+    writeFile flowFile timeStr
+    sideEffectsToIO (next ())
+
+sideEffectsToIO (WriteLedger row next) =
+  do
+    ledger <- getLedgerFile
+    appendFile ledger row
+    sideEffectsToIO (next ())
+sideEffectsToIO (GetTime next) =
+  do
+    time <- Data.Time.Clock.getCurrentTime
+    sideEffectsToIO (next time)
+sideEffectsToIO (Log str next) =
+  do
+    putStr str
+    sideEffectsToIO (next ())
 
 main :: IO ()
 main =
   do
     args <- System.Environment.getArgs
-    runAction (argsToAction args) 
+    sideEffectsToIO (runAction (argsToAction args))
 
+getFlowFile :: IO String
+getFlowFile = getPath ".flow"
+
+getLedgerFile :: IO String
+getLedgerFile = getPath "flow_ledger.csv"
+
+getPath :: String -> IO String
+getPath file =
+  do
+    home <- System.Environment.lookupEnv "HOME"
+    let dir = Data.Maybe.fromMaybe "/" home
+    return (System.FilePath.joinPath [dir, file])
+
+tryReadFile :: String -> IO (Maybe String)
+tryReadFile path =
+  do
+    res <- Control.Exception.try (readFile path)
+    case res of
+      Right contents                           -> return (Just contents)
+      Left (Control.Exception.SomeException _) -> return Nothing
+
+argsToAction :: [String] -> Action
 argsToAction [] = Start
 argsToAction ["start"] = Start
 argsToAction ["d"] = Stop
@@ -31,83 +80,3 @@ argsToAction ["done"] = Stop
 argsToAction ["f"] = Fail
 argsToAction ["fail"] = Fail
 argsToAction _ = Help
-
-runAction Start =
-  do
-    flowFile <- getFlowFile
-    oldFlow <- readFlowFile flowFile
-    case oldFlow of
-      Just c ->
-        putStr ("There already exists an ongoing flow started at " ++ c ++ "\n")
-      Nothing ->
-        do
-          time <- getTimeAsISOStr
-          writeFile flowFile time
-          putStr "Flow started\n"
-runAction Stop =
-  do
-    flowFile <- getFlowFile
-    flow <- readFlowFile flowFile
-    case flow of
-      Just c  ->
-        do
-          let maybeStartTime = tryParseTime c
-          case maybeStartTime of
-            Just startTime ->
-              do
-                endTime <- Data.Time.Clock.getCurrentTime
-                let duration = toInteger (round (Data.Time.Clock.diffUTCTime endTime startTime))
-                let csv = c ++ "," ++ (formatTime endTime) ++ "," ++ (show duration) ++ "\n"
-                ledger <- getLedgerFile
-                appendFile ledger csv
-                System.Directory.removeFile flowFile
-                putStr ("Flow lasted for " ++ (show duration) ++ " seconds.\n")
-            Nothing ->
-              putStr "Failed to parse flow file.\n"
-      Nothing ->
-        putStr "No ongoing flow.\n"
-runAction Fail =
-  do
-    flowFile <- getFlowFile
-    System.Directory.removeFile flowFile
-runAction Help =
-  putStr help
-
-getFlowFile = getPath ".flow"
-
-getLedgerFile = getPath "flow_ledger.csv"
-
-getPath file =
-  do
-    home <- System.Environment.lookupEnv "HOME"
-    let dir = Data.Maybe.fromMaybe "/" home
-    return (System.FilePath.joinPath [dir, file])
-
-readFlowFile path =
-  do
-    res <- Control.Exception.try (readFile path)
-    case res of
-      Right contents                           -> return (Just contents)
-      Left (Control.Exception.SomeException _) -> return Nothing
-
-tryParseTime :: String -> Maybe Data.Time.Clock.UTCTime
-tryParseTime timeStr =
-  Data.Time.Format.parseTimeM True locale iso8601 timeStr 
-
-getTimeAsISOStr =
-  do
-    time <- Data.Time.Clock.getCurrentTime
-    return (formatTime time)
-
-formatTime time =
-  Data.Time.Format.formatTime locale iso8601 time
-
-locale = Data.Time.Format.defaultTimeLocale
-
-iso8601 = "%Y-%m-%dT%H:%M:%S%z"
-
-help =
-  "Usage:\n" ++
-  "flow [start] - start a new flow\n" ++
-  "flow d[one] - record a succesful flow\n" ++
-  "flow f[ail] - fail the current flow\n"
