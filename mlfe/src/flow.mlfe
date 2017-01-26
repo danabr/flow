@@ -4,6 +4,8 @@ export main/1
 
 type action = Start | Stop | Fail | Help
 
+import_type file.result
+
 let main args =
   let path = flow_path() in
   match (parse_action args) with
@@ -21,26 +23,28 @@ let parse_action ["fail"]  = Fail
 let parse_action _         = Help
 
 let fail path =
-  beam :file :delete [path] with
-    (:error, :enoent) -> :ok
-  | (:error, _)       -> :error
-  | :ok              -> :ok
+  match file.delete path with
+    (Ok ())         -> :ok
+  | (Error :enoent) -> :ok
+  | (Error _)       -> :error
 
 let start path =
-  beam :file :read_file [path] with
-    (:error, :enoent) -> do_start path
-  | (:ok, at) -> puts "Flow already started.~n" []
+  match file.read_file path with
+    (Error :enoent) -> do_start path
+  | (Ok _)          -> puts "Flow already started.~n" []
 
 let do_start path =
   let time = format_time (universal_time ()) in
-  beam :file :write_file [path, time] with :ok -> :ok
+  match file.write_file path [time] with
+    (Ok _)    -> :ok
+  | (Error _) -> puts "Failed to write flow file~n" []
 
 let stop path =
-  beam :file :read_file [path] with
-    (:error, :enoent) -> puts "There is no running flow.~n" []
-  | (:ok, content) ->
-    let format = mlfe_string_to_erlang_string "~d-~d-~dT~d:~d:~d+0000" in
-    let at = mlfe_string_to_erlang_string content in
+  match file.read_file path with
+    (Error :enoent) -> puts "There is no running flow.~n" []
+  | (Ok content)    ->
+    let format =  c"~d-~d-~dT~d:~d:~d+0000" in
+    let at = str.to_cstring content in
     beam :io_lib :fread [format, at] with
       (:ok, [y,m,d,h,min,s], []) ->
         let start_time = ((y,m,d),(h,min,s)) in
@@ -57,16 +61,15 @@ let write_ledger start_time end_time duration =
   let output = [old_ledger,
                 (format_time start_time), ",",
                 (format_time end_time), ",",
-                (integer_to_string duration)] in
-  beam :file :write_file [path, output] with :ok -> :ok
-
-let integer_to_string i =
-  beam :erlang :integer_to_binary [i] with s, is_string s -> s
+                (str.from_int duration)] in
+  match file.write_file path output with
+    Ok ()   -> :ok
+  | Error _ -> puts "Failed to write flow file~n" []
 
 let read_ledger path =
-  beam :file :read_file [path] with
-    (:error, :enoent) -> ""
-  | (:ok, old_ledger) -> concat_strings [old_ledger, <<10>>]
+  match file.read_file path with
+    (Error :enoent) -> ""
+  | (Ok old_ledger) -> concat_strings [old_ledger, "\n"]
 
 let to_seconds datetime =
   beam :calendar :datetime_to_gregorian_seconds [datetime] with
@@ -83,7 +86,7 @@ let iso_format () = "~w-~2.2.0w-~2.2.0wT~2.2.0w:~2.2.0w:~2.2.0w+0000"
 
 let format_string format args =
   beam :io_lib :format [format, args] with
-    iolist -> erlang_string_to_mlfe_string iolist
+    iolist -> str.from_iolist iolist
 
 let flow_path () =
   let root = get_env_or_default "HOME" "/tmp" in
@@ -93,22 +96,12 @@ let ledger_path () =
   let root = get_env_or_default "HOME" "/tmp" in
   concat_strings [root,  "/", "flow_ledger.csv"]
 
-let concat_strings strings =
-  beam :erlang :iolist_to_binary [strings] with
-    s, is_string s -> s
+let concat_strings strings = str.from_iolist strings
 
 let get_env_or_default var default =
   beam :os :getenv [var] with
-    false -> default
-  | value -> erlang_string_to_mlfe_string value
-
-let erlang_string_to_mlfe_string erlang_string =
-  beam :unicode :characters_to_binary [erlang_string] with
-    s, is_string s -> s
-
-let mlfe_string_to_erlang_string mlfe_string =
-  beam :unicode :characters_to_list [mlfe_string] with
-    s -> s
+    false                 -> default
+  | value, is_chars value -> str.from_cstring value
 
 let help () =
   let w = puts "Usage:~n" [] in

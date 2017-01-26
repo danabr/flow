@@ -1,0 +1,26 @@
+-- Can't call the module string because it is a reserved word.
+module str
+
+type ioitem = int | string | cstring
+type iolist = list ioitem
+
+export from_cstring/1, from_int/1, from_iolist/1, to_cstring/1
+
+val from_cstring : [chars] -> string
+let from_cstring str =
+  beam :unicode :characters_to_binary [str] with
+    s, is_string s -> s
+
+val from_int : [int] -> string
+let from_int i =
+  beam :erlang :integer_to_binary [i] with
+    s, is_string s -> s
+
+let from_iolist iolist =
+  beam :unicode :characters_to_binary [iolist] with
+    s, is_string s -> s
+
+val to_cstring : [string] -> chars
+let to_cstring str =
+  beam :unicode :characters_to_list [str] with
+    s, is_chars s -> s
