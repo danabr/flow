@@ -5,20 +5,17 @@ export_type result
 
 export delete/1, read_file/1, write_file/2
 
-val delete: [string] -> result () atom
-let delete path =
+let delete path : [string] -> result () atom =
   beam :file :delete [path] with
     (:error, e), is_atom e -> Error e
   | :ok                     -> Ok ()
 
-val read_file: [string] -> result string atom
-let read_file path =
+let read_file path : [string] -> result string atom =
   beam :file :read_file [path] with
     (:error, e), is_atom e    -> Error e
   | (:ok, bin), is_string bin -> Ok bin
 
-val write_file: [string, list string] -> result () atom
-let write_file path content =
+let write_file path content : [string, list string] -> result () atom =
   beam :file :write_file [path, content] with
     (:error, e), is_atom e -> Error e
   | :ok                    -> Ok ()
